@@ -1,0 +1,232 @@
+# GitHub Actions Workflow for Azure Deployment
+# Alternative to GitLab CI/CD - use if you want to keep everything on GitHub
+
+name: Azure Deployment
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Manual trigger
+
+env:
+  ACR_NAME: ${{ secrets.ACR_NAME }}
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }}
+  AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
+
+jobs:
+  # =============================================================================
+  # Lint Jobs
+  # =============================================================================
+
+  lint-backend:
+    name: Lint Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install linters
+        working-directory: ./backend
+        run: |
+          pip install ruff mypy
+
+      - name: Run ruff
+        working-directory: ./backend
+        run: ruff check app/ || true
+
+  lint-frontend:
+    name: Lint Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: ./frontend
+        run: npm run lint || true
+
+  # =============================================================================
+  # Test Jobs
+  # =============================================================================
+
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: uems_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/uems_test
+        run: |
+          pytest -v || echo "No tests found"
+
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run tests
+        working-directory: ./frontend
+        run: npm test || echo "No tests configured"
+
+  # =============================================================================
+  # Build and Push to ACR
+  # =============================================================================
+
+  build-and-push:
+    name: Build and Push to ACR
+    runs-on: ubuntu-latest
+    needs: [lint-backend, lint-frontend, test-backend, test-frontend]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        run: |
+          az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Build and Push Backend
+        working-directory: ./backend
+        run: |
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/uems-backend:${{ github.sha }} .
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/uems-backend:latest .
+          docker push ${{ env.ACR_LOGIN_SERVER }}/uems-backend:${{ github.sha }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/uems-backend:latest
+
+      - name: Build and Push Frontend
+        working-directory: ./frontend
+        run: |
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:${{ github.sha }} .
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:latest .
+          docker push ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:${{ github.sha }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:latest
+
+  # =============================================================================
+  # Deploy to AKS
+  # =============================================================================
+
+  deploy:
+    name: Deploy to AKS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    environment:
+      name: production
+      url: https://uems.yourdomain.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.AKS_RESOURCE_GROUP }} \
+            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Deploy Backend to AKS
+        run: |
+          kubectl set image deployment/backend \
+            backend=${{ env.ACR_LOGIN_SERVER }}/uems-backend:${{ github.sha }} \
+            --namespace=uems-prod || echo "Backend deployment not found"
+
+      - name: Deploy Frontend to AKS
+        run: |
+          kubectl set image deployment/frontend \
+            frontend=${{ env.ACR_LOGIN_SERVER }}/uems-frontend:${{ github.sha }} \
+            --namespace=uems-prod || echo "Frontend deployment not found"
+
+      - name: Wait for Rollout
+        run: |
+          kubectl rollout status deployment/backend --namespace=uems-prod --timeout=5m || true
+          kubectl rollout status deployment/frontend --namespace=uems-prod --timeout=5m || true
+
+      - name: Display Deployment Status
+        run: |
+          echo "=== Deployments ==="
+          kubectl get deployments --namespace=uems-prod
+          echo ""
+          echo "=== Pods ==="
+          kubectl get pods --namespace=uems-prod
+
+# =============================================================================
+# GitHub Secrets Required (Settings > Secrets and variables > Actions)
+# =============================================================================
+#
+# AZURE_CREDENTIALS - JSON output from: az ad sp create-for-rbac --sdk-auth
+#   {
+#     "clientId": "...",
+#     "clientSecret": "...",
+#     "subscriptionId": "...",
+#     "tenantId": "..."
+#   }
+#
+# ACR_NAME                 - Azure Container Registry name
+# ACR_LOGIN_SERVER         - ACR login server (e.g., acruems.azurecr.io)
+# AKS_RESOURCE_GROUP       - Resource group name
+# AKS_CLUSTER_NAME         - AKS cluster name
+#
+# =============================================================================

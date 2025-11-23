@@ -15,6 +15,8 @@ env:
   ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
   AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }}
   AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
+  ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+  ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
 
 jobs:
   # =============================================================================
@@ -134,14 +136,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Login to ACR
         run: |
-          az acr login --name ${{ secrets.ACR_NAME }}
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
+            --username ${{ secrets.ACR_USERNAME }} \
+            --password-stdin
 
       - name: Build and Push Backend
         working-directory: ./backend
@@ -216,7 +215,7 @@ jobs:
 # GitHub Secrets Required (Settings > Secrets and variables > Actions)
 # =============================================================================
 #
-# AZURE_CREDENTIALS - JSON output from: az ad sp create-for-rbac --sdk-auth
+# AZURE_CREDENTIALS - Service principal JSON (see DEPLOYMENT.md):
 #   {
 #     "clientId": "...",
 #     "clientSecret": "...",
@@ -225,8 +224,10 @@ jobs:
 #   }
 #
 # ACR_NAME                 - Azure Container Registry name
-# ACR_LOGIN_SERVER         - ACR login server (e.g., acruems.azurecr.io)
-# AKS_RESOURCE_GROUP       - Resource group name
-# AKS_CLUSTER_NAME         - AKS cluster name
+# ACR_LOGIN_SERVER         - ACR login server (e.g., acruemsprod65mc1u.azurecr.io)
+# ACR_USERNAME             - ACR admin username
+# ACR_PASSWORD             - ACR admin password
+# AKS_RESOURCE_GROUP       - Resource group name (e.g., rg-uems-prod)
+# AKS_CLUSTER_NAME         - AKS cluster name (e.g., aks-uems-prod)
 #
 # =============================================================================

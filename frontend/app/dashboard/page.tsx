@@ -31,9 +31,9 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900 mb-6">Dashboard</h1>
 
-        {user.role === 'ADMIN' ? (
+        {user.role.toUpperCase() === 'ADMIN' ? (
           <AnalyticsDashboard />
-        ) : user.role === 'TEACHER' ? (
+        ) : user.role.toUpperCase() === 'TEACHER' ? (
           <div className="bg-white p-8 rounded-lg shadow">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">
               Welcome, {user.full_name}!

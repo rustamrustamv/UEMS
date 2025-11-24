@@ -32,7 +32,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const filteredMenuItems = menuItems.filter(item =>
-    item.roles.includes(user?.role || '')
+    item.roles.includes(user?.role?.toUpperCase() || '')
   );
 
   return (

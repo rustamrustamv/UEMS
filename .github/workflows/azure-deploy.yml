@@ -153,8 +153,10 @@ jobs:
       - name: Build and Push Frontend
         working-directory: ./frontend
         run: |
-          docker build -t ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:${{ github.sha }} .
-          docker build -t ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:latest .
+          docker build --build-arg NEXT_PUBLIC_API_URL=http://48.214.19.59:8000/api/v1 \
+            -t ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:${{ github.sha }} .
+          docker build --build-arg NEXT_PUBLIC_API_URL=http://48.214.19.59:8000/api/v1 \
+            -t ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:latest .
           docker push ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:${{ github.sha }}
           docker push ${{ env.ACR_LOGIN_SERVER }}/uems-frontend:latest
 

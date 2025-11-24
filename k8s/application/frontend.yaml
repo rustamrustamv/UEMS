@@ -19,7 +19,7 @@ spec:
         - containerPort: 3000
         env:
         - name: NEXT_PUBLIC_API_URL
-          value: "http://backend:8000/api/v1"
+          value: "http://48.214.19.59:8000/api/v1"
         resources:
           requests:
             cpu: 100m

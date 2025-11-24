@@ -117,3 +117,5 @@ export const analyticsAPI = {
     return response.data;
   },
 };
+
+export default api;

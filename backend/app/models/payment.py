@@ -39,7 +39,7 @@ class Payment(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    metadata = Column(JSONB, nullable=True)
+    payment_metadata = Column(JSONB, nullable=True)
 
     # Constraints
     __table_args__ = (
